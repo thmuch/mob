@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -600,7 +599,7 @@ func setBoolFromEnvVariable(s *bool, key string) {
 		*s = false
 		debugInfo("overriding " + key + "=" + strconv.FormatBool(*s))
 	} else {
-		sayError("ignoring " + key + "=" + value + " (not a boolean)")
+		sayWarning("ignoring " + key + "=" + value + " (not a boolean)")
 	}
 }
 
@@ -716,10 +715,8 @@ func execute(command string, parameter []string, configuration Configuration) {
 
 	switch command {
 	case "s", "start":
-		err := start(configuration)
-		if !isMobProgramming(configuration) || err != nil {
-			return
-		}
+		start(configuration)
+
 		if len(parameter) > 0 {
 			timer := parameter[0]
 			startTimer(timer, configuration)
@@ -881,7 +878,7 @@ func executeCommandsInBackgroundProcess(commands ...string) (err error) {
 	case "darwin", "linux":
 		_, err = startCommand("sh", "-c", fmt.Sprintf("(%s) &", strings.Join(cmds, ";")))
 	default:
-		sayError(fmt.Sprintf("Cannot execute background commands on your os: %s", runtime.GOOS))
+		sayWarning(fmt.Sprintf("Cannot execute background commands on your os: %s", runtime.GOOS))
 	}
 	return err
 }
@@ -893,34 +890,36 @@ func startTimer(timerInMinutes string, configuration Configuration) {
 	timeOfTimeout := time.Now().Add(time.Minute * time.Duration(timeoutInMinutes)).Format("15:04")
 	debugInfo(fmt.Sprintf("Starting timer at %s for %d minutes = %d seconds (parsed from user input %s)", timeOfTimeout, timeoutInMinutes, timeoutInSeconds, timerInMinutes))
 
-	timerSuccessful := false
-
 	room := getMobTimerRoom(configuration)
-	if room != "" {
+	startRemoteTimer := room != ""
+	startLocalTimer := configuration.TimerLocal
+
+	if !startRemoteTimer && !startLocalTimer {
+		sayError("No timer configured, not starting timer")
+		exit(1)
+	}
+
+	if startRemoteTimer {
 		timerUser := getUserForMobTimer(configuration.TimerUser)
 		err := httpPutTimer(timeoutInMinutes, room, timerUser, configuration.TimerUrl)
 		if err != nil {
 			sayError("remote timer couldn't be started")
 			sayError(err.Error())
-		} else {
-			timerSuccessful = true
+			exit(1)
 		}
 	}
 
-	if configuration.TimerLocal {
+	if startLocalTimer {
 		err := executeCommandsInBackgroundProcess(getSleepCommand(timeoutInSeconds), getVoiceCommand(configuration.VoiceMessage, configuration.VoiceCommand), getNotifyCommand(configuration.NotifyMessage, configuration.NotifyCommand))
 
 		if err != nil {
 			sayError(fmt.Sprintf("timer couldn't be started on your system (%s)", runtime.GOOS))
 			sayError(err.Error())
-		} else {
-			timerSuccessful = true
+			exit(1)
 		}
 	}
 
-	if timerSuccessful {
-		sayInfo("It's now " + currentTime() + ". " + fmt.Sprintf("%d min timer ends at approx. %s", timeoutInMinutes, timeOfTimeout) + ". Happy collaborating! :)")
-	}
+	sayInfo("It's now " + currentTime() + ". " + fmt.Sprintf("%d min timer ends at approx. %s", timeoutInMinutes, timeOfTimeout) + ". Happy collaborating! :)")
 }
 
 func getMobTimerRoom(configuration Configuration) string {
@@ -949,33 +948,37 @@ func startBreakTimer(timerInMinutes string, configuration Configuration) {
 	timeOfTimeout := time.Now().Add(time.Minute * time.Duration(timeoutInMinutes)).Format("15:04")
 	debugInfo(fmt.Sprintf("Starting break timer at %s for %d minutes = %d seconds (parsed from user input %s)", timeOfTimeout, timeoutInMinutes, timeoutInSeconds, timerInMinutes))
 
-	timerSuccessful := false
 	room := getMobTimerRoom(configuration)
-	if room != "" {
+	startRemoteTimer := room != ""
+	startLocalTimer := configuration.TimerLocal
+
+	if !startRemoteTimer && !startLocalTimer {
+		sayError("No break timer configured, not starting break timer")
+		exit(1)
+	}
+
+	if startRemoteTimer {
 		timerUser := getUserForMobTimer(configuration.TimerUser)
 		err := httpPutBreakTimer(timeoutInMinutes, room, timerUser, configuration.TimerUrl)
+
 		if err != nil {
 			sayError("remote break timer couldn't be started")
 			sayError(err.Error())
-		} else {
-			timerSuccessful = true
+			exit(1)
 		}
 	}
 
-	if configuration.TimerLocal {
+	if startLocalTimer {
 		err := executeCommandsInBackgroundProcess(getSleepCommand(timeoutInSeconds), getVoiceCommand("mob start", configuration.VoiceCommand), getNotifyCommand("mob start", configuration.NotifyCommand))
 
 		if err != nil {
 			sayError(fmt.Sprintf("break timer couldn't be started on your system (%s)", runtime.GOOS))
 			sayError(err.Error())
-		} else {
-			timerSuccessful = true
+			exit(1)
 		}
 	}
 
-	if timerSuccessful {
-		sayInfo("It's now " + currentTime() + ". " + fmt.Sprintf("%d min break timer ends at approx. %s", timeoutInMinutes, timeOfTimeout) + ". Happy collaborating! :)")
-	}
+	sayInfo("It's now " + currentTime() + ". " + fmt.Sprintf("%d min break timer ends at approx. %s", timeoutInMinutes, timeOfTimeout) + ". Happy collaborating! :)")
 }
 
 func getUserForMobTimer(userOverride string) string {
@@ -1043,11 +1046,12 @@ func moo(configuration Configuration) {
 	err := executeCommandsInBackgroundProcess(getVoiceCommand(voiceMessage, configuration.VoiceCommand))
 
 	if err != nil {
-		sayError(fmt.Sprintf("can't run voice command on your system (%s)", runtime.GOOS))
-		sayError(err.Error())
-	} else {
-		sayInfo(voiceMessage)
+		sayWarning(fmt.Sprintf("can't run voice command on your system (%s)", runtime.GOOS))
+		sayWarning(err.Error())
+		return
 	}
+
+	sayInfo(voiceMessage)
 }
 
 func reset(configuration Configuration) {
@@ -1065,14 +1069,15 @@ func reset(configuration Configuration) {
 	sayInfo("Branches " + currentWipBranch.String() + " and " + currentWipBranch.remote(configuration).String() + " deleted")
 }
 
-func start(configuration Configuration) error {
+func start(configuration Configuration) {
 	uncommittedChanges := hasUncommittedChanges()
 	if uncommittedChanges && !configuration.StartIncludeUncommittedChanges {
-		sayInfo("cannot start; clean working tree required")
-		sayUnstagedChangesInfo()
+		sayError("cannot start; clean working tree required")
+		sayUnstagedChangesInfo() // TODO perhaps add them to error?
 		sayUntrackedFilesInfo()
 		sayFix("To start, including uncommitted changes, use", configuration.mob("start --include-uncommitted-changes"))
-		return errors.New("cannot start; clean working tree required")
+		exit(1)
+		return
 	}
 
 	git("fetch", configuration.RemoteName, "--prune")
@@ -1081,19 +1086,22 @@ func start(configuration Configuration) error {
 	if !currentBaseBranch.hasRemoteBranch(configuration) {
 		sayError("Remote branch " + currentBaseBranch.remote(configuration).String() + " is missing")
 		sayFix("To set the upstream branch, use", "git push "+configuration.RemoteName+" "+currentBaseBranch.String()+" --set-upstream")
-		return errors.New("remote branch is missing")
+		exit(1)
+		return
 	}
 
 	if currentBaseBranch.hasUnpushedCommits(configuration) {
 		sayError("cannot start; unpushed changes on base branch must be pushed upstream")
 		sayFix("to fix this, push those commits and try again", "git push "+configuration.RemoteName+" "+currentBaseBranch.String())
-		return errors.New("cannot start; unpushed changes on base branch must be pushed upstream")
+		exit(1)
+		return
 	}
 
 	if uncommittedChanges && silentgit("ls-tree", "-r", "HEAD", "--full-name", "--name-only", ".") == "" {
 		sayError("cannot start; current working dir is an uncommitted subdir")
 		sayFix("to fix this, go to the parent directory and try again", "cd ..")
-		return errors.New("cannot start; current working dir is an uncommitted subdir")
+		exit(1)
+		return
 	}
 
 	if uncommittedChanges {
@@ -1123,8 +1131,6 @@ func start(configuration Configuration) error {
 	sayLastCommitsList(currentBaseBranch.String(), currentWipBranch.String())
 
 	openLastModifiedFileIfPresent(configuration)
-
-	return nil // no error
 }
 
 func openLastModifiedFileIfPresent(configuration Configuration) {
@@ -1157,8 +1163,9 @@ func openLastModifiedFileIfPresent(configuration Configuration) {
 	commandname, args := configuration.openCommandFor(lastModifiedFilePath)
 	_, err := startCommand(commandname, args...)
 	if err != nil {
-		sayError(fmt.Sprintf("Couldn't open last modified file on your system (%s)", runtime.GOOS))
-		sayError(err.Error())
+		sayWarning(fmt.Sprintf("Couldn't open last modified file on your system (%s)", runtime.GOOS))
+		sayWarning(err.Error())
+		return
 	}
 	debugInfo("Open last modified file: " + lastModifiedFilePath)
 }
@@ -1270,7 +1277,7 @@ func next(configuration Configuration) {
 
 	if !configuration.hasCustomCommitMessage() && configuration.RequireCommitMessage && hasUncommittedChanges() {
 		sayError("commit message required")
-		return
+		exit(1)
 	}
 
 	currentBaseBranch, currentWipBranch := determineBranches(gitCurrentBranch(), gitBranches(), configuration)
@@ -1338,8 +1345,8 @@ func getPathOfLastModifiedFile() string {
 		debugInfo(absoluteFilepath)
 		info, err := os.Stat(absoluteFilepath)
 		if err != nil {
-			sayError("Could not get statistics of file: " + absoluteFilepath)
-			sayError(err.Error())
+			sayWarning("Could not get statistics of file: " + absoluteFilepath)
+			sayWarning(err.Error())
 			continue
 		}
 		modTime := info.ModTime()
@@ -1432,7 +1439,7 @@ func done(configuration Configuration) {
 		}
 		err := appendCoauthorsToSquashMsg(gitDir())
 		if err != nil {
-			sayError(err.Error())
+			sayWarning(err.Error())
 		}
 
 		if hasUncommittedChanges() {
@@ -1633,6 +1640,7 @@ func silentgit(args ...string) string {
 		sayGitError(commandString, output, err)
 		exit(1)
 	}
+
 	return strings.TrimSpace(output)
 }
 
@@ -1666,9 +1674,9 @@ func git(args ...string) {
 	if err != nil {
 		sayGitError(commandString, output, err)
 		exit(1)
-	} else {
-		sayIndented(commandString)
 	}
+
+	sayIndented(commandString)
 }
 
 func gitCommitHash() string {
@@ -1695,8 +1703,8 @@ func gitignorefailure(args ...string) error {
 
 	sayIndented(commandString)
 	if err != nil {
-		sayError(output)
-		sayError(err.Error())
+		sayWarning(output)
+		sayWarning(err.Error())
 	}
 	return err
 }
