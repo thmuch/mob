@@ -257,11 +257,6 @@ func TestNextNotMobProgramming(t *testing.T) {
 
 func TestRequireCommitMessage(t *testing.T) {
 	output, _ := setup(t)
-	exitOld := exit
-	exit = func(code int) {
-
-	}
-	defer func() { exit = exitOld }()
 
 	os.Unsetenv("MOB_REQUIRE_COMMIT_MESSAGE")
 	defer os.Unsetenv("MOB_REQUIRE_COMMIT_MESSAGE")
@@ -627,12 +622,6 @@ func TestCleanMissingBaseBranch(t *testing.T) {
 }
 
 func TestStartUnstagedChanges(t *testing.T) {
-	exitOld := exit
-	exit = func(code int) {
-
-	}
-	defer func() { exit = exitOld }()
-
 	output, configuration := setup(t)
 	configuration.StartIncludeUncommittedChanges = false
 	createFile(t, "test.txt", "contentIrrelevant")
@@ -656,12 +645,6 @@ func TestStartIncludeUnstagedChanges(t *testing.T) {
 }
 
 func TestStartIncludeUnstagedChangesInNewWorkingDirectory(t *testing.T) {
-	exitOld := exit
-	exit = func(code int) {
-
-	}
-	defer func() { exit = exitOld }()
-
 	output, configuration := setup(t)
 	configuration.StartIncludeUncommittedChanges = true
 	Debug = true
@@ -676,12 +659,6 @@ func TestStartIncludeUnstagedChangesInNewWorkingDirectory(t *testing.T) {
 }
 
 func TestStartHasUnpushedCommits(t *testing.T) {
-	exitOld := exit
-	exit = func(code int) {
-
-	}
-	defer func() { exit = exitOld }()
-
 	output, configuration := setup(t)
 	createFileAndCommitIt(t, "test.txt", "contentIrrelevant", "unpushed change")
 
@@ -711,12 +688,6 @@ func TestStartIncludeUntrackedFiles(t *testing.T) {
 }
 
 func TestStartUntrackedFiles(t *testing.T) {
-	exitOld := exit
-	exit = func(code int) {
-
-	}
-	defer func() { exit = exitOld }()
-
 	_, configuration := setup(t)
 	configuration.StartIncludeUncommittedChanges = false
 	createFile(t, "example.txt", "contentIrrelevant")
@@ -727,12 +698,6 @@ func TestStartUntrackedFiles(t *testing.T) {
 }
 
 func TestStartOnUnpushedFeatureBranch(t *testing.T) {
-	exitOld := exit
-	exit = func(code int) {
-
-	}
-	defer func() { exit = exitOld }()
-
 	output, configuration := setup(t)
 	git("checkout", "-b", "feature1")
 
@@ -1162,12 +1127,6 @@ func TestStartNextFeatureBranch(t *testing.T) {
 }
 
 func TestStartDoneLocalFeatureBranch(t *testing.T) {
-	exitOld := exit
-	exit = func(code int) {
-
-	}
-	defer func() { exit = exitOld }()
-
 	output, configuration := setup(t)
 	git("checkout", "-b", "feature1")
 
@@ -1275,12 +1234,6 @@ func TestStartNextPushManualCommitsFeatureBranch(t *testing.T) {
 }
 
 func TestConflictingMobSessions(t *testing.T) {
-	exitOld := exit
-	exit = func(code int) {
-
-	}
-	defer func() { exit = exitOld }()
-
 	_, configuration := setup(t)
 
 	setWorkingDir(tempDir + "/local")
@@ -1412,7 +1365,8 @@ func TestIsGitIdentifiesOutsideOfGitRepo(t *testing.T) {
 func TestNotAGitRepoMessage(t *testing.T) {
 	output, _ := setup(t)
 	setWorkingDir(tempDir + "/notgit")
-	sayGitError("TEST", "TEST", errors.New("TEST"))
+	// TODO missing an actual test case here
+	GitErrorToMobResult("TEST", "TEST", errors.New("TEST")).Print()
 	assertOutputContains(t, output, "expecting the current working directory to be a git repository.")
 }
 
